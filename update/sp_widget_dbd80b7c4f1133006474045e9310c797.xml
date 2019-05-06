@@ -1,14 +1,32 @@
 <?xml version="1.0" encoding="UTF-8"?><record_update table="sp_widget">
     <sp_widget action="INSERT_OR_UPDATE">
         <category>custom</category>
-        <client_script><![CDATA[function() {
-   /* widget controller */
-   var c = this;
+        <client_script><![CDATA[function(spUserAvatar) {
+	/* widget controller */
+	var c = this;
 
-   /* Step 3. Accept user input */
-	
-	
-	
+	/* Step 3. Accept user input */
+
+	c.saveTags = function(event) {
+		c.server.get({
+			tags:event.tags,
+			sys_id: event.sys_id
+		}).then(function(rsp){
+			c.data.msg=rsp.data.msg;
+			c.data.state=rsp.data.state;
+		})
+	}	
+
+	//use underscore to loop over event and add the avatar object to each event
+	_.each(c.data.events, function(ev) {
+
+		/* call the getAvatar method on the UserAvatar service and pass it the sys_id of the Event's presenter */
+		var avatar = spUserAvatar.getAvatar(ev.presenter.value).then(function(rsp){
+
+			//add a new avatar property to current event
+			ev.avatar=rsp;
+		});
+	});	
 }	]]></client_script>
         <controller_as>c</controller_as>
         <css>.margin-bottom-10 {
@@ -22,7 +40,50 @@
         <has_preview>true</has_preview>
         <id>event_information</id>
         <internal>false</internal>
-        <link><![CDATA[function link(scope, element, attrs, controller) {  }]]></link>
+        <link><![CDATA[function(scope, element) {
+	// you cannot inject services into the link function, but you can get them another way...
+	var $window = $injector.get('$window');
+	
+	// you have access to the scope object, which has the client controller on it
+	var controller = scope.c;
+	
+       //you still have access to data and options objects from the server
+	if (String(controller.options.enable_arrow_key_selection) == 'true')
+		registerWindowEvents();
+
+	
+	function registerWindowEvents() {
+		// register the window listener
+		angular.element($window).on('keyup', function(event) {
+			
+			//if button pressed is up or down, record it, otherwise exit
+			var direction = event.keyCode == 40 ? 'down' : (event.keyCode == 38 ? 'up' : false);
+			if (!direction)
+				return;
+
+			// using 'element.find' ensures you are only searching the current widget
+			var selected = element.find('.selected');
+			
+			// find the element below the selected one, and select it
+			var next = direction == 'up' ? selected.prev() : selected.next();
+			if (!next.length) {
+				
+				// if there is no next item, go to the top, or bottom depending on the direction selected
+				var allItems = element.find('.list-group-item');
+				if (direction == 'up') {
+					next = allItems[allItems.length - 1];
+				} else {
+					next = allItems[0];
+				}
+			}
+			
+			//if you got here, there is a "next" element. that can use .click to process the ng-click on the element
+			next.click();
+			
+		});
+	}
+	
+}	]]></link>
         <name>Event Information</name>
         <option_schema/>
         <public>false</public>
@@ -30,18 +91,18 @@
         <script><![CDATA[(function() {
 
 	/* Step 1. Load initial data from the server */
-			/* populate the 'data' object */
-			/* e.g., data.table = $sp.getValue('table'); */
+	/* populate the 'data' object */
+	/* e.g., data.table = $sp.getValue('table'); */
 
 	if(!input) {
 		var eventsTable = 'x_snc_cloudevents_events';
-		var fields = 'sys_id,name,description,start_date,end_date,certification,certification_name,location';
+		var fields = 'sys_id,name,description,start_date,end_date,certification,certification_name,location,presenter';
 		data.events = [ ];
 
 		var gr = new GlideRecord(eventsTable);
 		gr.addActiveQuery();
 		gr.query();
-		
+
 		while(gr.next()){
 			var o = $sp.getFieldsObject(gr,fields);
 			o.sys_id = gr.getUniqueValue();
@@ -54,9 +115,18 @@
 
 
 	/* Step 4. Process user input */
-	
+
 	if(input) {
-		
+		var updateTags = new GlideRecord('x_snc_cloudevents_events');
+		updateTags.get(input.sys_id);
+		updateTags.tags=input.tags.join(',');
+
+		var result=updateTags.update();
+
+		if(result){
+			data.msg='Tags saved';
+			data.state='success';
+		}	
 	}
 
 })();	]]></script>
@@ -65,15 +135,23 @@
         <sys_created_by>admin</sys_created_by>
         <sys_created_on>2019-05-06 16:38:49</sys_created_on>
         <sys_id>dbd80b7c4f1133006474045e9310c797</sys_id>
-        <sys_mod_count>2</sys_mod_count>
+        <sys_mod_count>11</sys_mod_count>
         <sys_name>Event Information</sys_name>
         <sys_package display_value="Cloud Dimensions Events" source="x_snc_cloudevents">77108b70610813007f44e59882b97a67</sys_package>
         <sys_policy/>
         <sys_scope display_value="Cloud Dimensions Events">77108b70610813007f44e59882b97a67</sys_scope>
         <sys_update_name>sp_widget_dbd80b7c4f1133006474045e9310c797</sys_update_name>
         <sys_updated_by>admin</sys_updated_by>
-        <sys_updated_on>2019-05-06 16:44:50</sys_updated_on>
+        <sys_updated_on>2019-05-06 18:46:53</sys_updated_on>
         <template><![CDATA[<form>
+  <!-- Step 5. Display customized content based on user input -->
+
+  <div class="alert alert-{{::c.data.state}}"
+       ng-if="c.data.msg">{{::c.data.msg}}
+    <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+      <span aria-hidden="true">&times;</span>
+    </button>
+  </div>	
 
   <!-- Step 2. Display initial data from the server -->
 
@@ -92,10 +170,27 @@
         <dd>{{event[field].display_value}}</dd>
       </dl>
 
+      <!-- Presenter's Avatar -->
+      <div class="avatar-extra-large avatar-container margin-bottom-10"
+           style="cursor:default;"
+           uib-tooltip="{{event.presenter.display_value}}">
+        <div class="avatar soloAvatar bottom">
+          <div class="sub-avatar mia" ng-style="event.avatar">
+            <i class="fa fa-user"></i>
+          </div>
+        </div>
+      </div>	
+      <tags-input class="margin-bottom-10"
+                  placeholder="{{c.placeholderText}}"
+                  use-strings="true"
+                  ng-model="event.tags">
+      </tags-input>	
+      <input type="button" value="Save" class="btn btn-primary"
+             ng-click="c.saveTags(event)">	
     </uib-tab>
   </uib-tabset>	
 
-  <!-- Step 5. Display customized content based on user input -->
+
 
 
   <!-- <pre>{{c.data.events | json}}</pre> -->
