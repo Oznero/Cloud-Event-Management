@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?><record_update table="sp_widget">
     <sp_widget action="INSERT_OR_UPDATE">
         <category>custom</category>
-        <client_script><![CDATA[function(spUtil,$scope,$timeout) {
+        <client_script><![CDATA[function(spUtil,$scope,$timeout,$uibModal,spModal,$http) {
 	/* widget controller */
 	var c = this;
 
@@ -13,6 +13,17 @@
 
 		//Send the data object to the server script
 		c.server.update();
+
+		var crumb = _.find(c.breadcrumbsArray, {type: 'table_summary.aggregate'});
+
+		if(crumb){
+			crumb.label = record.agName;
+		} else {
+			c.breadcrumbsArray.push({
+				label: record.agName,
+				type: 'table_summary.aggregate'
+			});
+		}
 	}	
 
 	//Sort Functionality
@@ -48,6 +59,62 @@
 			c.updatedRegs[updateObj.data.sys_id] = false;
 		},6000);
 	});	
+
+
+	//Modal functionality
+	c.openRecord = function(record) {
+		c.modalInstance = $uibModal.open({
+			//template: '<div class="modal-header"> <h4 class="modal-title">Event Registration</h4></div>' + 
+			//'<div class="modal-body">{{ modalC.record || json }}</div>',
+			templateUrl: 'table-summary-overlay.html',
+			controllerAs: 'modalC',
+			controller: function(){
+				var modalC = this;
+				modalC.record = record;
+				modalC.modalInstance = c.modalInstance;
+				spUtil.get('widget-form', {
+					sys_id:modalC.record.sys_id,
+					table:c.data.table
+				}).then(function(response){
+					modalC.form = response;
+				})
+			}
+		})
+	}	
+
+	c.breadcrumbsArray = [
+		{
+			url: '/cloudevents',
+			label: 'Cloud Events'
+		},
+		{
+			url: '?ide=cde_management',
+			label: 'Manage'
+		}
+	];
+	$scope.$emit('sp.update.breadcrumbs', c.breadcrumbsArray);
+
+	//Delete record functionality
+	c.deleteRecord = function(record){
+
+		//Confirm the deletion
+		spModal.confirm("Are you sure you want to delete this record?").then(function successCallback(answer) {
+
+			//Delete request upon confirmation
+			$http({
+				method:'DELETE',
+				url: '/api/now/table/' + c.data.table + '/' + record.sys_id
+
+				//Confirm record deleted
+			}).then(function successCallback(response){
+				spUtil.addInfoMessage('Record deleted');
+			})
+
+			//Confirm record not deleted
+		}, function errorCallback(response){
+			spUtil.addInfoMessage('Record not deleted');
+		})
+	}	
 }	]]></client_script>
         <controller_as>c</controller_as>
         <css>.badge {
@@ -120,9 +187,11 @@
 		var labels = $sp.getFieldsObject(gr, input.fields);
 
 		for (var label in labels) {
-			data.labels.push({"key":label,
-												"type": labels[label].type,
-												"value":labels[label].label});
+			data.labels.push({
+				"key":label,
+				"type": labels[label].type,
+				"value":labels[label].label
+			});
 		}
 
 		while(gr.next()){
@@ -141,14 +210,14 @@
         <sys_created_by>admin</sys_created_by>
         <sys_created_on>2019-05-05 22:26:19</sys_created_on>
         <sys_id>7fcecb2831d933007f44b264e66651f9</sys_id>
-        <sys_mod_count>18</sys_mod_count>
+        <sys_mod_count>34</sys_mod_count>
         <sys_name>Table Summary</sys_name>
         <sys_package display_value="Cloud Dimensions Events" source="x_snc_cloudevents">77108b70610813007f44e59882b97a67</sys_package>
         <sys_policy/>
         <sys_scope display_value="Cloud Dimensions Events">77108b70610813007f44e59882b97a67</sys_scope>
         <sys_update_name>sp_widget_7fcecb2831d933007f44b264e66651f9</sys_update_name>
         <sys_updated_by>admin</sys_updated_by>
-        <sys_updated_on>2019-05-06 18:34:02</sys_updated_on>
+        <sys_updated_on>2019-05-06 21:59:34</sys_updated_on>
         <template><![CDATA[<form>
 
   <!-- Step 2. Display initial data from the server -->
@@ -159,7 +228,7 @@
 
     <!-- List group -->
     <ul class="list-group">
-      <li class="list-group-item" ng-repeat="s in c.data.summary" ng-click="c.selectAg(s)" ng-class="{  'selected' : c.data.selectedAg == s.agValue}">{{ s.agName }}<span class="badge">{{ s.agCount }}</span></li>
+      <li class="list-group-item" ng-repeat="s in c.data.summary" ng-click="c.selectAg(s)" ng-class="{ 'selected' : c.data.selectedAg == s.agValue}">{{ s.agName }}<span class="badge">{{ s.agCount }}</span></li>
     </ul>
   </div>
 
@@ -168,7 +237,7 @@
   <!-- <pre>{{c.data.records | json}}</pre> -->
 
 
-  <table class="table cloud-widets" ng-if="c.data.records">
+  <table class="table cloud-widgets" ng-if="c.data.records">
     <thead>
       <tr>
         <th ng-repeat="label in c.data.labels" ng-click="c.changeSortCol(label.key)">{{ label.value }}
@@ -180,6 +249,8 @@
                   ng-show="c.sortOrder"></span>
           </span>	
         </th>
+        <th></th>
+        <th></th>
       </tr>
     </thead>
 
@@ -189,6 +260,8 @@
           <sp-time-ago date="record[label.key]" ng-if="label.type=='glide_date_time'"></sp-time-ago>
           <span ng-if="label.type!='glide_date_time'">{{ record[label.key] }}</span>
         </td>
+        <td><span class="fa fa-info-circle" ng-click="c.openRecord(record)"></span></td>
+        <td><span class="fa fa-trash" ng-click="c.deleteRecord(record)"></span></td>
       </tr>
     </tbody>
   </table>	
